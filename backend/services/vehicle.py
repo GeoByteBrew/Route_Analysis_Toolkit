@@ -18,29 +18,29 @@ class VehicleConstraints:
 
 
 VEHICLE_TEMPLATES: dict[str, dict[str, Any]] = {
-    "blade": {
-        "id": "blade",
-        "label": "Wind blade",
-        "description": "Long blade trailer — length-critical",
+    "long_load": {
+        "id": "long_load",
+        "label": "Extra-long load",
+        "description": "Extended trailer — length-critical",
         "length_m": 65.0,
         "width_m": 4.5,
         "height_m": 4.2,
         "weight_t": 40.0,
         "max_slope_pct": 7.0,
     },
-    "tower_section": {
-        "id": "tower_section",
-        "label": "Tower section",
-        "description": "Heavy cylindrical tower segment",
+    "wide_load": {
+        "id": "wide_load",
+        "label": "Wide & heavy load",
+        "description": "Wide, heavy cylindrical load",
         "length_m": 30.0,
         "width_m": 4.8,
         "height_m": 4.8,
         "weight_t": 90.0,
         "max_slope_pct": 8.0,
     },
-    "nacelle": {
-        "id": "nacelle",
-        "label": "Nacelle",
+    "heavy_load": {
+        "id": "heavy_load",
+        "label": "Very heavy load",
         "description": "High weight, moderate envelope",
         "length_m": 14.0,
         "width_m": 4.2,

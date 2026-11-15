@@ -93,7 +93,7 @@
     els.vehicleTemplate.innerHTML = state.templates
       .map((t) => `<option value="${t.id}">${t.label}</option>`)
       .join("");
-    applyTemplate("blade");
+    applyTemplate("long_load");
   }
 
   function featureToObstacle(f) {

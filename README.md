@@ -15,7 +15,7 @@ Includes a built-in sample: **Montpellier → Lyon** (KMZ).
 - **Upload route** — GeoJSON, KML, **KMZ**, GPX
 - **Km snap / chainage** — obstacles snap onto the corridor (`km 42.30`)
 - **Rich obstacles** — severity, bypass flag, note, optional photo
-- **Vehicle templates** — wind blade · tower section · nacelle · custom
+- **Vehicle templates** — extra-long · wide & heavy · very heavy · custom
 - **Distance profile** — markers every ~50 km in map + PDF
 - **Checklist report** — conflicts in km order + field checklist
 - **Save / load project** — download JSON · autosave in browser · server copy
