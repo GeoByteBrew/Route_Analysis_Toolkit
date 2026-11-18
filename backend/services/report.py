@@ -5,9 +5,7 @@ from __future__ import annotations
 import base64
 import csv
 import io
-import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from reportlab.lib import colors
@@ -16,25 +14,14 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-ROOT = Path(__file__).resolve().parents[2]
-OUTPUTS = ROOT / "outputs"
-
-
-def _ensure_outputs() -> Path:
-    OUTPUTS.mkdir(parents=True, exist_ok=True)
-    return OUTPUTS
-
-
 def _sorted_obstacle_features(result: dict[str, Any]) -> list[dict[str, Any]]:
     feats = list(result.get("obstacles", {}).get("features", []))
     feats.sort(key=lambda f: (f["properties"].get("km") is None, f["properties"].get("km") or 0))
     return feats
 
 
-def export_csv(result: dict[str, Any], export_id: str | None = None) -> Path:
-    out = _ensure_outputs()
-    export_id = export_id or uuid.uuid4().hex[:10]
-    path = out / f"report_{export_id}.csv"
+def build_csv(result: dict[str, Any]) -> bytes:
+    """Return the obstacle report as CSV bytes (nothing is written to disk)."""
 
     rows: list[dict[str, Any]] = []
     for feature in _sorted_obstacle_features(result):
@@ -55,33 +42,33 @@ def export_csv(result: dict[str, Any], export_id: str | None = None) -> Path:
             }
         )
 
-    with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "km",
-                "km_label",
-                "type",
-                "name",
-                "value",
-                "severity",
-                "bypass_possible",
-                "status",
-                "detail",
-                "note",
-                "photo_attached",
-            ],
-        )
-        writer.writeheader()
-        writer.writerows(rows)
+    buf = io.StringIO(newline="")
+    writer = csv.DictWriter(
+        buf,
+        fieldnames=[
+            "km",
+            "km_label",
+            "type",
+            "name",
+            "value",
+            "severity",
+            "bypass_possible",
+            "status",
+            "detail",
+            "note",
+            "photo_attached",
+        ],
+    )
+    writer.writeheader()
+    writer.writerows(rows)
 
-    return path
+    # BOM so Excel opens accented names (Nîmes…) correctly
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
 
 
-def export_pdf(result: dict[str, Any], export_id: str | None = None) -> Path:
-    out = _ensure_outputs()
-    export_id = export_id or uuid.uuid4().hex[:10]
-    path = out / f"report_{export_id}.pdf"
+def build_pdf(result: dict[str, Any]) -> bytes:
+    """Return the route report as PDF bytes (nothing is written to disk)."""
+    buf = io.BytesIO()
 
     summary = result.get("summary", {})
     vehicle = result.get("vehicle", {})
@@ -98,7 +85,7 @@ def export_pdf(result: dict[str, Any], export_id: str | None = None) -> Path:
     body = styles["BodyText"]
     small = ParagraphStyle("Small", parent=body, fontSize=8, leading=10)
 
-    doc = SimpleDocTemplate(str(path), pagesize=A4, leftMargin=16 * mm, rightMargin=16 * mm)
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=16 * mm, rightMargin=16 * mm)
     story = []
     story.append(Paragraph("Route Analysis Toolkit — Route Report", title_style))
     story.append(
@@ -261,4 +248,4 @@ def export_pdf(result: dict[str, Any], export_id: str | None = None) -> Path:
     )
 
     doc.build(story)
-    return path
+    return buf.getvalue()

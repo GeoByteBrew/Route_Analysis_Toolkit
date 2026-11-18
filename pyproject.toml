@@ -1,0 +1,27 @@
+[project]
+name = "route-analysis-toolkit"
+version = "0.5.0"
+description = "Python + Leaflet Web GIS toolkit for analyzing oversized transport corridors."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "shapely>=2.0.0",
+    "numpy>=1.26.0",
+    "reportlab>=4.2.0",
+    "python-multipart>=0.0.12",
+    "pydantic>=2.9.0",
+]
+
+[tool.uv]
+# Application, not a library: install dependencies only.
+package = false
+
+[tool.setuptools]
+packages = ["backend", "backend.services"]
+
+[tool.vercel]
+# The FastAPI app lives in backend/app.py, not in a default entrypoint file.
+entrypoint = "backend.app:app"
