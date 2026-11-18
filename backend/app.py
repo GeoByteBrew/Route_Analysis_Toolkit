@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import Any, Literal, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from shapely.geometry import shape
@@ -18,7 +19,7 @@ from shapely.geometry import shape
 from backend.services.custom_analyze import analyze_custom_route
 from backend.services.geometry_utils import ensure_linestring, snap_to_route
 from backend.services.parse_route import parse_route_file
-from backend.services.report import export_csv, export_pdf
+from backend.services.report import build_csv, build_pdf
 from backend.services.vehicle import VehicleConstraints, list_templates, vehicle_as_dict
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +30,10 @@ PROJECTS = OUTPUTS / "projects"
 SAMPLE_KMZ = DATA / "sample_montpellier_lyon.kmz"
 SAMPLE_OBSTACLES = DATA / "sample_obstacles.json"
 
+# On serverless hosts (Vercel) the filesystem is read-only and not shared
+# between requests, so server-side project copies are disabled there.
+HOSTED = bool(os.environ.get("VERCEL"))
+
 app = FastAPI(
     title="Route Analysis Toolkit",
     description=(
@@ -36,7 +41,7 @@ app = FastAPI(
         "apply vehicle templates, and export PDF/CSV/project JSON. "
         "Sample: Montpellier → Lyon KMZ."
     ),
-    version="0.4.0",
+    version="0.5.0",
 )
 
 app.add_middleware(
@@ -91,36 +96,25 @@ class ProjectPayload(BaseModel):
     meta: dict[str, Any] = Field(default_factory=dict)
 
 
-def _write_exports(payload: dict[str, Any]) -> dict[str, str]:
-    export_id = uuid.uuid4().hex[:10]
-    csv_path = export_csv(payload, export_id)
-    pdf_path = export_pdf(payload, export_id)
-    geojson_path = OUTPUTS / f"route_{export_id}.geojson"
-    OUTPUTS.mkdir(parents=True, exist_ok=True)
+def build_geojson(payload: dict[str, Any]) -> bytes:
+    features = [payload["route"]] if payload.get("route") else []
+    for f in (payload.get("obstacles") or {}).get("features", []):
+        props = dict(f.get("properties") or {})
+        props.pop("photo_data_url", None)  # keep the export light
+        features.append({"type": "Feature", "properties": props, "geometry": f.get("geometry")})
+    return json.dumps({"type": "FeatureCollection", "features": features}, indent=2).encode("utf-8")
 
-    features = [payload["route"]]
-    if payload.get("obstacles"):
-        # Strip heavy photos from geojson export
-        for f in payload["obstacles"].get("features", []):
-            props = dict(f.get("properties") or {})
-            props.pop("photo_data_url", None)
-            features.append({"type": "Feature", "properties": props, "geometry": f.get("geometry")})
 
-    geojson_path.write_text(
-        json.dumps({"type": "FeatureCollection", "features": features}, indent=2),
-        encoding="utf-8",
-    )
-    return {
-        "geojson": f"/api/exports/{geojson_path.name}",
-        "csv": f"/api/exports/{csv_path.name}",
-        "pdf": f"/api/exports/{pdf_path.name}",
-        "export_id": export_id,
-    }
+EXPORTERS = {
+    "pdf": (build_pdf, "application/pdf", "pdf"),
+    "csv": (build_csv, "text/csv; charset=utf-8", "csv"),
+    "geojson": (build_geojson, "application/geo+json", "geojson"),
+}
 
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "version": "0.4.0", "modes": "upload"}
+    return {"status": "ok", "version": "0.5.0", "modes": "upload", "hosted": str(HOSTED).lower()}
 
 
 @app.get("/api/meta")
@@ -200,18 +194,37 @@ def analyze(req: AnalyzeRequest) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
-    payload: dict[str, Any] = {
+    return {
         **result,
         "vehicle": vehicle_as_dict(vehicle),
+        "export_formats": list(EXPORTERS),
     }
-    downloads = _write_exports(payload)
-    payload["export_id"] = downloads.pop("export_id")
-    payload["downloads"] = downloads
-    return payload
+
+
+@app.post("/api/export/{fmt}")
+def export_report(fmt: str, payload: dict[str, Any]) -> Response:
+    """Build a PDF / CSV / GeoJSON report from an /api/analyze result, in memory."""
+    if fmt not in EXPORTERS:
+        raise HTTPException(404, f"Unknown export format: {fmt}")
+    if "summary" not in payload:
+        raise HTTPException(400, "Send the JSON returned by /api/analyze")
+    builder, media, ext = EXPORTERS[fmt]
+    try:
+        content = builder(payload)
+    except Exception as exc:
+        raise HTTPException(400, f"Export failed: {exc}") from exc
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M")
+    return Response(
+        content=content,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="route-report-{stamp}.{ext}"'},
+    )
 
 
 @app.post("/api/projects")
 def save_project(req: ProjectPayload) -> dict[str, Any]:
+    if HOSTED:
+        raise HTTPException(503, "Server-side project copies are disabled in the hosted demo")
     PROJECTS.mkdir(parents=True, exist_ok=True)
     project_id = uuid.uuid4().hex[:10]
     payload = {
@@ -222,7 +235,7 @@ def save_project(req: ProjectPayload) -> dict[str, Any]:
         "obstacles": req.obstacles,
         "vehicle": req.vehicle.model_dump(),
         "meta": req.meta,
-        "version": "0.4.0",
+        "version": "0.5.0",
     }
     path = PROJECTS / f"project_{project_id}.json"
     # Drop oversized photos from server copy if needed
@@ -240,7 +253,7 @@ def save_project(req: ProjectPayload) -> dict[str, Any]:
     return {
         "id": project_id,
         "name": req.name,
-        "download": f"/api/exports/project_{project_id}.json",
+        "download": f"/api/projects/{project_id}",
         "path": str(path.name),
     }
 
@@ -252,26 +265,6 @@ def load_project(project_id: str) -> dict[str, Any]:
     if not path.exists():
         raise HTTPException(404, "Project not found")
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-@app.get("/api/exports/{filename}")
-def get_export(filename: str) -> FileResponse:
-    safe = Path(filename).name
-    # Allow project files from outputs/projects
-    if safe.startswith("project_") and safe.endswith(".json"):
-        path = PROJECTS / safe
-    else:
-        path = OUTPUTS / safe
-    if not path.exists() or not path.is_file():
-        raise HTTPException(404, "Export not found")
-    media = {
-        ".pdf": "application/pdf",
-        ".csv": "text/csv",
-        ".geojson": "application/geo+json",
-        ".json": "application/json",
-        ".kmz": "application/vnd.google-earth.kmz",
-    }.get(path.suffix.lower(), "application/octet-stream")
-    return FileResponse(path, media_type=media, filename=safe)
 
 
 @app.get("/")

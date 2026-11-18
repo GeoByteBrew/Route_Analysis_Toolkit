@@ -227,13 +227,60 @@
           .join("")}</ul>`
       : "";
 
-    const d = result.downloads || {};
-    els.downloads.innerHTML = [
-      d.geojson ? `<a href="${d.geojson}" download>GeoJSON</a>` : "",
-      d.csv ? `<a href="${d.csv}" download>CSV</a>` : "",
-      d.pdf ? `<a href="${d.pdf}" download>PDF Report</a>` : "",
-    ].join("");
+    const labels = { geojson: "GeoJSON", csv: "CSV", pdf: "PDF Report" };
+    const formats = result.export_formats || Object.keys(labels);
+    els.downloads.innerHTML = formats
+      .filter((f) => labels[f])
+      .map((f) => `<a href="#" data-format="${f}">${labels[f]}</a>`)
+      .join("");
   }
+
+  // Reports are built on demand from the last analysis result (no files are
+  // stored on the server, which keeps the app stateless / serverless-friendly).
+  async function downloadReport(format) {
+    if (!state.lastResult) {
+      setStatus("Run an analysis first.", true);
+      return;
+    }
+    setStatus(`Preparing ${format.toUpperCase()}…`);
+    try {
+      const res = await fetch(`/api/export/${format}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(state.lastResult),
+      });
+      if (!res.ok) {
+        let msg = `Export failed (${res.status})`;
+        try {
+          const err = await res.json();
+          if (typeof err.detail === "string") msg = err.detail;
+        } catch (_) {}
+        if (res.status === 413) msg = "Report too large — try removing large obstacle photos.";
+        throw new Error(msg);
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("Content-Disposition") || "";
+      const match = cd.match(/filename="([^"]+)"/);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = match ? match[1] : `route-report.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setStatus(`${format.toUpperCase()} downloaded.`);
+    } catch (err) {
+      setStatus(err.message || String(err), true);
+    }
+  }
+
+  els.downloads.addEventListener("click", (e) => {
+    const link = e.target.closest("a[data-format]");
+    if (!link) return;
+    e.preventDefault();
+    downloadReport(link.dataset.format);
+  });
 
   async function runAnalysis() {
     if (!state.routeFeature) {
