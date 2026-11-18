@@ -536,3 +536,8 @@ select {
     min-height: 65vh;
   }
 }
+
+/* Muted basemap so the corridor and obstacles stand out */
+.basemap-tiles {
+  filter: grayscale(0.85) brightness(1.06) contrast(0.92);
+}

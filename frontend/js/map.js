@@ -22,10 +22,13 @@ const MapView = (() => {
       attributionControl: true,
     }).setView(center, zoom);
 
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-      maxZoom: 18,
+    // Keyless OpenStreetMap tiles (CARTO basemaps now require an API key off localhost).
+    // A CSS filter on .basemap-tiles gives them a light, muted look.
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      className: "basemap-tiles",
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     }).addTo(state.map);
 
     Object.keys(state.layers).forEach((key) => {
